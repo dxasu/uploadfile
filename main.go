@@ -3,15 +3,18 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"html/template"
 	"image"
 	"image/png"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -67,7 +70,6 @@ func webIndex(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("webIndex request time:%s host:%s header:%v \n", time.Now().Format("2006-01-02 15:04:05"), r.URL.Host, r.Header)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// 将 HTML 内容写入响应体
 	_, err := w.Write([]byte(htmlText))
 	if err != nil {
 		log.Println("Error writing response:", err)
@@ -132,7 +134,55 @@ func getLocalIp() string {
 	return "localhost"
 }
 
-func Cors(next http.Handler) http.Handler {
+type fileEntry struct {
+	Name string
+	Path string
+}
+
+func fileServerHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("fileServerHandler request time:%s host:%s path:%s header:%v \n", time.Now().Format("2006-01-02 15:04:05"), r.URL.Host, r.URL.Path, r.Header)
+	requestedPath := r.URL.Path
+	requestedFilePath := filepath.Join(filePath, requestedPath)
+	_, err := os.Stat(requestedFilePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if fileInfo, _ := os.Stat(requestedFilePath); fileInfo.IsDir() {
+		// 获取目录下的文件和子目录
+		files, err := os.ReadDir(requestedFilePath)
+		if err != nil {
+			http.Error(w, "os.ReadDir failed Error", http.StatusInternalServerError)
+			return
+		}
+
+		// 构造文件列表
+		var fileList []fileEntry
+		for _, file := range files {
+			path, _ := url.JoinPath(requestedPath, file.Name())
+			fileList = append(fileList, fileEntry{Name: file.Name(), Path: path})
+		}
+		fmt.Println(fileList, len(requestedPath), ">>>>>>>>>>>")
+
+		tmpl, err := template.New("view").Parse(viewTemplate)
+		if err != nil {
+			http.Error(w, "template.New failed Error", http.StatusInternalServerError)
+			return
+		}
+
+		err = tmpl.Execute(w, struct{ Files []fileEntry }{Files: fileList})
+		if err != nil {
+			http.Error(w, "tmpl.Execute failed Error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// 如果请求的路径是一个文件，则直接返回文件内容
+		http.ServeFile(w, r, requestedFilePath)
+	}
+}
+
+func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 设置允许跨域访问的来源，* 表示允许任意来源
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -164,22 +214,119 @@ func openBrowser(url string) {
 
 func main() {
 	if len(os.Args) <= 1 {
-		fmt.Println(`empty filepath, command as:
-uploadfile filepath`)
+		fmt.Println(help)
 		return
 	}
 	myhost = "http://" + getLocalIp() + ":" + myport
-	filePath = os.Args[1]
-	http.HandleFunc("/", showQrcode)
-	http.HandleFunc("/index", webIndex)
-	http.HandleFunc("/upload", uploadHandler)
-	fmt.Println("click link and upload with qrcode " + myhost)
+
+	if len(os.Args) > 2 {
+		if os.Args[1] != "-v" {
+			fmt.Println(help)
+			return
+		}
+		filePath = os.Args[2]
+		http.HandleFunc("/", fileServerHandler)
+		fmt.Println("click link and view " + myhost)
+	} else {
+		filePath = os.Args[1]
+		http.HandleFunc("/", showQrcode)
+		http.HandleFunc("/index", webIndex)
+		http.HandleFunc("/upload", uploadHandler)
+		fmt.Println("click link and upload with qrcode " + myhost)
+	}
+
 	go func() {
 		time.Sleep(time.Second)
 		go openBrowser(myhost)
 	}()
-	http.ListenAndServe(":"+myport, Cors(http.DefaultServeMux))
+	http.ListenAndServe(":"+myport, cors(http.DefaultServeMux))
 }
+
+const help = `empty filepath, command as:
+uploadfile filepath
+uploadfile -v filepath`
+
+const viewTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Browser</title>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            color: #fff;
+        }
+        header {
+            background-color: #333;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 {
+            margin: 0;
+            font-size: 36px;
+            font-weight: 700;
+        }
+        nav {
+            background-color: #444;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+        ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        li {
+            margin: 10px;
+            transition: transform 0.3s ease;
+        }
+        li:hover {
+            transform: translateY(-5px);
+        }
+        a {
+            color: #fff;
+            text-decoration: none;
+            padding: 15px 25px;
+            border-radius: 10px;
+            background-color: #007bff;
+            box-shadow: 0 5px 15px rgba(0, 123, 255, 0.3);
+            transition: background-color 0.3s ease, transform 0.3s ease;
+            display: block;
+            text-align: center;
+        }
+        a:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>文件浏览</h1>
+    </header>
+    <nav>
+        <ul>
+            {{range .Files}}
+                <li><a href="{{.Path}}">{{.Name}}</a></li>
+            {{end}}
+        </ul>
+    </nav>
+</body>
+</html>
+
+
+`
 
 var htmlText = `<!DOCTYPE html>
 <html lang="en">
@@ -190,7 +337,7 @@ var htmlText = `<!DOCTYPE html>
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
+            background-color: #222;
             margin: 0;
             padding: 0;
             display: flex;
@@ -200,7 +347,7 @@ var htmlText = `<!DOCTYPE html>
         }
 
         .container {
-            background-color: #ffffff;
+            background-color: #444;
             border-radius: 10px;
             box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.1);
             padding: 30px;
@@ -211,11 +358,12 @@ var htmlText = `<!DOCTYPE html>
         h1 {
             font-size: 24px;
             margin-bottom: 20px;
+			color: #fff;
         }
 
         .upload-btn {
             border: none;
-            background: linear-gradient(to right, #ff7e5f, #feb47b);
+            background: linear-gradient(to right, #007bff, #00b47b);
             color: white;
             padding: 15px 30px;
             text-align: center;
@@ -229,7 +377,7 @@ var htmlText = `<!DOCTYPE html>
         }
 
         .upload-btn:hover {
-            background: linear-gradient(to right, #fe4a5a, #ff7e5f);
+            background: linear-gradient(to right, #004a5a, #007bff);
         }
 
         .loading-overlay {
