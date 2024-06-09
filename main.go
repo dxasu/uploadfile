@@ -24,6 +24,7 @@ import (
 
 var filePath string = ""
 var myhost string = ""
+var domain string = "localhost"
 
 const myport = "9999"
 
@@ -105,7 +106,7 @@ func getLocalIp() string {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		fmt.Println("获取网络接口错误:", err)
-		return "localhost"
+		return domain
 	}
 
 	// 遍历网络接口，找到非 loopback 和非虚拟网卡的第一个 IPv4 地址
@@ -131,7 +132,7 @@ func getLocalIp() string {
 			}
 		}
 	}
-	return "localhost"
+	return domain
 }
 
 type fileEntry struct {
@@ -207,7 +208,7 @@ func openBrowser(url string) {
 		err = exec.Command("xdg-open", url).Start()
 	}
 	if err != nil {
-		log.Fatalln("Error opening browser:", err)
+		log.Println("Error opening browser:", err)
 	}
 }
 
@@ -218,17 +219,19 @@ func main() {
 	}
 	myhost = "http://" + getLocalIp() + ":" + myport
 
-	if len(os.Args) > 2 {
-		if os.Args[1] != "-v" {
-			fmt.Println(help)
-			return
-		}
+	if len(os.Args) > 2 && os.Args[1] == "-v" {
 		filePath = os.Args[2]
+		if len(os.Args) > 3 {
+			myhost = "http://" + os.Args[3] + ":" + myport
+		}
 		http.HandleFunc("/", showQrcode)
 		http.HandleFunc("/index/", fileServerHandler)
 		fmt.Println("click link and view " + myhost)
 	} else {
 		filePath = os.Args[1]
+		if len(os.Args) > 2 {
+			myhost = "http://" + os.Args[2] + ":" + myport
+		}
 		http.HandleFunc("/", showQrcode)
 		http.HandleFunc("/index/", webIndex)
 		http.HandleFunc("/upload", uploadHandler)
@@ -243,8 +246,7 @@ func main() {
 }
 
 const help = `empty filepath, command as:
-uploadfile filepath
-uploadfile -v filepath`
+uploadfile [-v] filepath [ip]`
 
 const viewTemplate = `<!DOCTYPE html>
 <html lang="en">
