@@ -24,7 +24,6 @@ import (
 
 var filePath string = ""
 var myhost string = ""
-var domain string = "localhost"
 var myport = "2021"
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +104,7 @@ func getLocalIp() string {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		fmt.Println("获取网络接口错误:", err)
-		return domain
+		return "localhost"
 	}
 
 	// 遍历网络接口，找到非 loopback 和非虚拟网卡的第一个 IPv4 地址
@@ -131,7 +130,7 @@ func getLocalIp() string {
 			}
 		}
 	}
-	return domain
+	return "localhost"
 }
 
 type fileEntry struct {
@@ -211,19 +210,59 @@ func openBrowser(url string) {
 	}
 }
 
+func getPublicIP() (string, error) {
+	client := &http.Client{Transport: &http.Transport{DisableCompression: true}}
+	req, err := http.NewRequest("GET", "http://ip.sb", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "curl/8.4.0")
+	req.Header.Set("Accept", "*/*")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+}
+
 func main() {
 	execDir := flag.String("d", ".", "directory, default is current directory")
 	hostPtr := flag.String("h", "", "ip, default is local ip")
+	usePublic := flag.Bool("H", false, "use public ip")
 	portPtr := flag.Int("p", 2021, "port, default is 2021")
 	inView := flag.Bool("v", false, "view mode")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, "Options:")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 	myport = fmt.Sprintf("%d", *portPtr)
-	if *hostPtr != "" {
+	domain := ""
+	if *usePublic {
+		publicIP, err := getPublicIP()
+		if err != nil {
+			fmt.Println("-H option failed, err:", err)
+			return
+		}
+		domain = publicIP
+	} else if *hostPtr != "" {
 		domain = *hostPtr
-		myhost = "http://" + domain + ":" + myport
 	} else {
-		myhost = "http://" + getLocalIp() + ":" + myport
+		domain = getLocalIp()
 	}
+
+	myhost = "http://" + domain + ":" + myport
 	filePath = *execDir
 
 	if *inView {
@@ -243,9 +282,6 @@ func main() {
 	}()
 	http.ListenAndServe(":"+myport, cors(http.DefaultServeMux))
 }
-
-const help = `empty filepath, command as:
-uploadfile [-v] filepath [ip]`
 
 const viewTemplate = `<!DOCTYPE html>
 <html lang="en">
