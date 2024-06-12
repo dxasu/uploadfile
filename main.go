@@ -224,7 +224,7 @@ func getPublicIP() (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Unexpected status code: %d", resp.StatusCode)
+		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -232,15 +232,15 @@ func getPublicIP() (string, error) {
 		return "", err
 	}
 
-	return string(body), nil
+	return strings.TrimSpace(string(body)), nil
 }
 
 func main() {
 	execDir := flag.String("d", ".", "directory, default is current directory")
-	hostPtr := flag.String("h", "", "ip, default is local ip")
-	usePublic := flag.Bool("H", false, "use public ip")
-	portPtr := flag.Int("p", 2021, "port, default is 2021")
-	inView := flag.Bool("v", false, "view mode")
+	hostPtr := flag.String("i", "", "ip, default use local ip")
+	usePublic := flag.Bool("I", false, "use public ip")
+	portPtr := flag.Int("p", 2021, "port")
+	inView := flag.Bool("v", false, "view mode(download file)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n", os.Args[0])
 		fmt.Fprintln(os.Stderr, "Options:")
