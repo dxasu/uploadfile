@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"html/template"
 	"image"
@@ -10,7 +11,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -25,8 +25,7 @@ import (
 var filePath string = ""
 var myhost string = ""
 var domain string = "localhost"
-
-const myport = "9999"
+var myport = "2021"
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("uploadHandler request time:%s host:%s header:%v \n", time.Now().Format("2006-01-02 15:04:05"), r.URL.Host, r.Header)
@@ -161,7 +160,7 @@ func fileServerHandler(w http.ResponseWriter, r *http.Request) {
 		// 构造文件列表
 		var fileList []fileEntry
 		for _, file := range files {
-			path, _ := url.JoinPath(r.URL.Path, file.Name())
+			path := path.Join(r.URL.Path, file.Name())
 			fileList = append(fileList, fileEntry{Name: file.Name(), Path: path})
 		}
 
@@ -213,25 +212,25 @@ func openBrowser(url string) {
 }
 
 func main() {
-	if len(os.Args) <= 1 {
-		fmt.Println(help)
-		return
+	execDir := flag.String("d", ".", "directory, default is current directory")
+	hostPtr := flag.String("h", "", "ip, default is local ip")
+	portPtr := flag.Int("p", 2021, "port, default is 2021")
+	inView := flag.Bool("v", false, "view mode")
+	flag.Parse()
+	myport = fmt.Sprintf("%d", *portPtr)
+	if *hostPtr != "" {
+		domain = *hostPtr
+		myhost = "http://" + domain + ":" + myport
+	} else {
+		myhost = "http://" + getLocalIp() + ":" + myport
 	}
-	myhost = "http://" + getLocalIp() + ":" + myport
+	filePath = *execDir
 
-	if len(os.Args) > 2 && os.Args[1] == "-v" {
-		filePath = os.Args[2]
-		if len(os.Args) > 3 {
-			myhost = "http://" + os.Args[3] + ":" + myport
-		}
+	if *inView {
 		http.HandleFunc("/", showQrcode)
 		http.HandleFunc("/index/", fileServerHandler)
 		fmt.Println("click link and view " + myhost)
 	} else {
-		filePath = os.Args[1]
-		if len(os.Args) > 2 {
-			myhost = "http://" + os.Args[2] + ":" + myport
-		}
 		http.HandleFunc("/", showQrcode)
 		http.HandleFunc("/index/", webIndex)
 		http.HandleFunc("/upload", uploadHandler)
