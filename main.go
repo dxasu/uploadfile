@@ -22,9 +22,74 @@ import (
 	"github.com/skip2/go-qrcode"
 )
 
-var filePath string = ""
-var myhost string = ""
-var myport = "2021"
+var (
+	filePath string = ""
+	myhost   string = ""
+	myport          = "2021"
+	authKey         = ""
+)
+
+const defaultKey = "index"
+
+func main() {
+	execDir := flag.String("d", ".", "directory, default is current directory")
+	hostPtr := flag.String("i", "", "ip, default use local ip")
+	usePublic := flag.Bool("I", false, "use public ip")
+	portPtr := flag.Int("p", 2021, "port")
+	inView := flag.Bool("v", false, "view mode(download file)")
+	openWeb := flag.Bool("o", false, "show qrcode and open browser automatically")
+	authPtr := flag.String("a", "", "auth key, default is empty")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, "Options:")
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+
+	myport = fmt.Sprintf("%d", *portPtr)
+	domain := ""
+	if *usePublic {
+		publicIP, err := getPublicIP()
+		if err != nil {
+			fmt.Println("-H option failed, err:", err)
+			return
+		}
+		domain = publicIP
+	} else if *hostPtr != "" {
+		domain = *hostPtr
+	} else {
+		domain = getLocalIp()
+	}
+
+	myhost = "http://" + domain + ":" + myport
+	filePath = *execDir
+	indexUrl := myhost
+	if *authPtr != "" {
+		authKey = *authPtr
+		indexUrl += "?a=" + authKey
+	} else {
+		authKey = defaultKey
+	}
+
+	if *inView {
+		http.HandleFunc("/", showQrcode)
+		http.HandleFunc("/"+authKey+"/", fileServerHandler)
+		fmt.Println("click link and view " + indexUrl)
+	} else {
+		http.HandleFunc("/", showQrcode)
+		http.HandleFunc("/"+authKey+"/", webIndex)
+		http.HandleFunc("/upload", uploadHandler)
+		fmt.Println("click link and upload with qrcode " + indexUrl)
+	}
+	if *openWeb {
+		go func() {
+			time.Sleep(time.Second)
+			go openBrowser(indexUrl)
+		}()
+	}
+	http.ListenAndServe(":"+myport, cors(http.DefaultServeMux))
+}
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("uploadHandler request time:%s host:%s header:%v \n", time.Now().Format("2006-01-02 15:04:05"), r.URL.Host, r.Header)
@@ -78,8 +143,12 @@ func webIndex(w http.ResponseWriter, r *http.Request) {
 
 func showQrcode(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("showQrcode request time:%s host:%s header:%v \n", time.Now().Format("2006-01-02 15:04:05"), r.URL.Host, r.Header)
-
-	qrBytes, err := qrcode.Encode(myhost+"/index", qrcode.Medium, 256)
+	if authKey != defaultKey && r.URL.Query().Get("a") != authKey {
+		http.NotFound(w, r)
+		fmt.Println("auth failed authKey:", authKey, "url_authKey:", r.URL.Query().Get("a"))
+		return
+	}
+	qrBytes, err := qrcode.Encode(myhost+"/"+authKey, qrcode.Medium, 256)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -140,7 +209,7 @@ type fileEntry struct {
 
 func fileServerHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("fileServerHandler request time:%s host:%s path:%s header:%v \n", time.Now().Format("2006-01-02 15:04:05"), r.URL.Host, r.URL.Path, r.Header)
-	requestedPath := strings.TrimPrefix(r.URL.Path, "/index")
+	requestedPath := strings.TrimPrefix(r.URL.Path, "/"+authKey)
 	requestedFilePath := filepath.Join(filePath, requestedPath)
 	_, err := os.Stat(requestedFilePath)
 	if err != nil {
@@ -233,54 +302,6 @@ func getPublicIP() (string, error) {
 	}
 
 	return strings.TrimSpace(string(body)), nil
-}
-
-func main() {
-	execDir := flag.String("d", ".", "directory, default is current directory")
-	hostPtr := flag.String("i", "", "ip, default use local ip")
-	usePublic := flag.Bool("I", false, "use public ip")
-	portPtr := flag.Int("p", 2021, "port")
-	inView := flag.Bool("v", false, "view mode(download file)")
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n", os.Args[0])
-		fmt.Fprintln(os.Stderr, "Options:")
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-	myport = fmt.Sprintf("%d", *portPtr)
-	domain := ""
-	if *usePublic {
-		publicIP, err := getPublicIP()
-		if err != nil {
-			fmt.Println("-H option failed, err:", err)
-			return
-		}
-		domain = publicIP
-	} else if *hostPtr != "" {
-		domain = *hostPtr
-	} else {
-		domain = getLocalIp()
-	}
-
-	myhost = "http://" + domain + ":" + myport
-	filePath = *execDir
-
-	if *inView {
-		http.HandleFunc("/", showQrcode)
-		http.HandleFunc("/index/", fileServerHandler)
-		fmt.Println("click link and view " + myhost)
-	} else {
-		http.HandleFunc("/", showQrcode)
-		http.HandleFunc("/index/", webIndex)
-		http.HandleFunc("/upload", uploadHandler)
-		fmt.Println("click link and upload with qrcode " + myhost)
-	}
-
-	go func() {
-		time.Sleep(time.Second)
-		go openBrowser(myhost)
-	}()
-	http.ListenAndServe(":"+myport, cors(http.DefaultServeMux))
 }
 
 const viewTemplate = `<!DOCTYPE html>
