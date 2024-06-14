@@ -1,9 +1,7 @@
 # uploadfile
 uploadfile by qrcode
 ```
-go install -v -a -ldflags="-s" github.com/dxasu/uploadfile@latest
-
-uploadfile "F:\coyi2020"
+go install -a -ldflags="-s" github.com/dxasu/uploadfile@latest
 ```
 提示: windows上, 关闭公用网络防火墙
 -v 选项用于显示详细的构建信息。
