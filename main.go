@@ -59,15 +59,19 @@ func main() {
 	} else if *hostPtr != "" {
 		domain = *hostPtr
 	} else {
-		domain = getLocalIp()
+		var err error
+		domain, err = getLocalIP()
+		if err != nil {
+			panic(fmt.Errorf("getLocalIp failed, err: %w", err))
+		}
 	}
 
 	myhost = "http://" + domain + ":" + myport
 	filePath = *execDir
-	indexUrl := myhost
+	indexURL := myhost
 	if *authPtr != "" {
 		authKey = *authPtr
-		indexUrl += "?a=" + authKey
+		indexURL += "?a=" + authKey
 	} else {
 		authKey = defaultKey
 	}
@@ -75,17 +79,17 @@ func main() {
 	if *inView {
 		http.HandleFunc("/", showQrcode)
 		http.HandleFunc("/"+authKey+"/", fileServerHandler)
-		fmt.Println("click link and view " + indexUrl)
+		fmt.Println("click link and view " + indexURL)
 	} else {
 		http.HandleFunc("/", showQrcode)
 		http.HandleFunc("/"+authKey+"/", webIndex)
 		http.HandleFunc("/upload", uploadHandler)
-		fmt.Println("click link and upload with qrcode " + indexUrl)
+		fmt.Println("click link and upload with qrcode " + indexURL)
 	}
 	if *openWeb {
 		go func() {
 			time.Sleep(time.Second)
-			go openBrowser(indexUrl)
+			go openBrowser(indexURL)
 		}()
 	}
 	http.ListenAndServe(":"+myport, cors(http.DefaultServeMux))
@@ -169,7 +173,7 @@ func showQrcode(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getLocalIp() string {
+func getLocalIPFailed() string {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		fmt.Println("获取网络接口错误:", err)
@@ -200,6 +204,34 @@ func getLocalIp() string {
 		}
 	}
 	return "localhost"
+}
+
+func getLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP.IsLoopback() || ipNet.IP.IsLinkLocalUnicast() {
+			continue
+		}
+
+		ipv4 := ipNet.IP.To4()
+		if ipv4 == nil {
+			continue
+		}
+
+		// 排除Docker、VPN等虚拟接口的常见网段
+		if !ipv4.IsPrivate() {
+			continue
+		}
+
+		return ipv4.String(), nil
+	}
+
+	return "", fmt.Errorf("no LAN IPv4 address found")
 }
 
 type fileEntry struct {
